@@ -14,6 +14,7 @@ from torchnmf.nmf import NMF
 import numpy as np
 from model.graph.XSimGCL import XSimGCL_Encoder
 from model.graph.SimGCL import SimGCL_Encoder
+import os
 
 
 # 重写prompts生成方式 train和save
@@ -31,6 +32,14 @@ class PT4Rec(GraphRecommender):
             self.maxPreEpoch = int(self.config['num.max.preepoch'])
         else:
             self.maxPreEpoch = 0
+
+        # Derive pretrained model path from config
+        dataset_name = os.path.basename(os.path.dirname(self.config['training.set']))
+        if self.config.contain('pretrain_model_path'):
+            self.pretrained_model_path = self.config['pretrain_model_path']
+        else:
+            self.pretrained_model_path = f'./pretrained_model/{self.pretrain_model}_{dataset_name}_pretrain_{self.maxPreEpoch}.pt'
+        print(f'Pretrained model path: {self.pretrained_model_path}')
 
         self.user_prompt_H = True
         self.user_prompt_M = True
@@ -71,18 +80,6 @@ class PT4Rec(GraphRecommender):
         optimizer = torch.optim.Adam(pre_trained_model.parameters(), lr=self.lRate)
 
         print('############## Pre-Training Phase ##############')
-        for epoch in range(self.maxPreEpoch):
-            for n, batch in enumerate(next_batch_pairwise(self.data, self.batch_size)):
-                user_idx, pos_idx, neg_idx = batch
-                rec_user_emb, rec_item_emb, cl_user_emb, cl_item_emb  = pre_trained_model(True)
-                cl_loss = pre_trained_model.cal_cl_loss([user_idx,pos_idx],rec_user_emb,cl_user_emb,rec_item_emb,cl_item_emb)
-                batch_loss =  cl_loss
-                # Backward and optimize
-                optimizer.zero_grad()
-                batch_loss.backward()
-                optimizer.step()
-                if n % 100==0:
-                    print('pre-training:', epoch + 1, 'batch', n, 'cl_loss', cl_loss.item())
 
         # save pre-trained model
         # torch.save(pre_trained_model.state_dict(), './pretrained_model/XSimGCL_Douban_pretrain_20.pt')         
@@ -94,23 +91,24 @@ class PT4Rec(GraphRecommender):
             print('############## Pre-Training Phase ##############')
             print('Load pretrained model successfully!')
             return
-        except:
-            print('No pretrained model, start pre-training...')
+        else:
+            print(f'No pretrained model found at {self.pretrained_model_path}, start pre-training...')
 
         pre_trained_model = self.model.cuda()
         optimizer = torch.optim.Adam(pre_trained_model.parameters(), lr=self.lRate)
 
-        print('############## Pre-Training Phase ##############')
         for epoch in range(self.maxPreEpoch):
             for n, batch in enumerate(next_batch_pairwise(self.data, self.batch_size)):
                 user_idx, pos_idx, neg_idx = batch
-                cl_loss = pre_trained_model.cal_cl_loss([user_idx,pos_idx])
-                batch_loss =  cl_loss
-                # Backward and optimize
+                if self.pretrain_model == 'XSimGCL':
+                    rec_user_emb, rec_item_emb, cl_user_emb, cl_item_emb = pre_trained_model(True)
+                    cl_loss = pre_trained_model.cal_cl_loss([user_idx, pos_idx], rec_user_emb, cl_user_emb, rec_item_emb, cl_item_emb)
+                else:  # SimGCL
+                    cl_loss = pre_trained_model.cal_cl_loss([user_idx, pos_idx])
                 optimizer.zero_grad()
-                batch_loss.backward()
+                cl_loss.backward()
                 optimizer.step()
-                if n % 100==0:
+                if n % 100 == 0:
                     print('pre-training:', epoch + 1, 'batch', n, 'cl_loss', cl_loss.item())
 
         # save pre-trained model
@@ -157,10 +155,7 @@ class PT4Rec(GraphRecommender):
         return user_profiles, item_profiles
 
     def train(self):
-        if self.pretrain_model == 'XSimGCL':
-            self.XSimGCL_pre_train()
-        elif self.pretrain_model == 'SimGCL':
-            self.SimGCL_pre_train()
+        self.pre_train()
 
         model = self.model.cuda()
         params = list(model.parameters()) + list(self.user_attention.parameters()) + list(self.user_prompt_generator[0].parameters()) + list(self.user_prompt_generator[1].parameters()) + list(self.user_prompt_generator[2].parameters())
