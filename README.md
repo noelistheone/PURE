@@ -2,7 +2,7 @@
 <ol>
 <li>Execute <b>pip install -r requirements.txt</b> under the SELFRec directory</li>
 <li>Configure the xx.yaml file in ./conf . (xx is the name of the model you want to run)</li>
-<li>Run main.py and choose the model you want to run.</li>
+<li>Run main.py and choose the model you want to run.(eg. PT4Rec_Enhanced(ours))</li>
 </ol>
 
 <h2>Acknowledgement</h2>
